@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-from datetime import timedelta, datetime
 import requests
+import logging
 
+logger = logging.getLogger()
 TIMEFMT = "%d/%m/%Y %H:%M:%S"
 
 DEVICES_URL = "http://10.0.38.42:26001/devices"
@@ -28,34 +29,6 @@ def getChannels(data: dict):
         for device in beagle:
             for channel_name, channel_data in device["channels"].items():
                 yield device["prefix"], channel_name, channel_data
-
-
-def lauchTimer(_delay, target1, target2, **kwargs):
-    """ Run a function then another ..."""
-    delay = timedelta(seconds=_delay)
-    t_ini = datetime.now()
-    logger.info(
-        'Running initial function "{}" at {}. Next method in {} seconds.'.format(
-            target1.__name__, t_ini.strftime(TIMEFMT), _delay
-        )
-    )
-
-    t_now = datetime.now()
-    t_elapsed = t_now - t_ini
-    while t_elapsed < delay:
-        logger.info("Time elapsed {}.".format(t_elapsed.strftime("%H:%M:%S")))
-        time.sleep(1)
-
-        t_now = datetime.now()
-        t_elapsed = t_now - t_ini
-
-    logger.info(
-        'Running final function "{}" at {}.'.format(
-            target2.__name__, t_ini.strftime(TIMEFMT)
-        )
-    )
-
-    target1()
 
 
 if __name__ == "__main__":

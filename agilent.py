@@ -8,6 +8,8 @@ import asyncio
 from datetime import timedelta, datetime
 from utils import getAgilent, getDevices, getChannels, TIMEFMT
 
+from qtpy.QtCore import QObject, Signal, QRunnable
+
 logger = logging.getLogger()
 
 EPICS_TOUT = 1
@@ -16,85 +18,130 @@ CMD_TOUT = 0.500
 FIXED, STEP, STEP_TO_FIXED = "fixed", "step", "step_to_fixed"
 
 
-async def toFixed(
-    dev, chs, voltage,
-):
-    pv, val = dev + ":Step-SP_Backend", 0
-    logger.info("set {} {}".format(pv, val))
-    # epics.caput(pv, val, timeout=EPICS_TOUT)
-    await asyncio.sleep(CMD_TOUT)
+class AgilentAsync(QObject):
+    timerStatus = Signal(dict)
+    started = Signal()
+    finished = Signal()
 
-    for ch in chs:
-        pv, val = ch + ":VoltageTarget-SP", voltage
+    def __init__(self, *args, **kwargs):
+        super(AgilentAsync, self).__init__(*args, **kwargs)
+
+    async def toFixed(
+        self, dev, chs, voltage,
+    ):
+        pv, val = dev + ":Step-SP_Backend", 0
         logger.info("set {} {}".format(pv, val))
         # epics.caput(pv, val, timeout=EPICS_TOUT)
         await asyncio.sleep(CMD_TOUT)
 
+        for ch in chs:
+            pv, val = ch + ":VoltageTarget-SP", voltage
+            logger.info("set {} {}".format(pv, val))
+            # epics.caput(pv, val, timeout=EPICS_TOUT)
+            await asyncio.sleep(CMD_TOUT)
 
-async def toStep(
-    dev, chs,
-):
-    pv, val = dev + ":Step-SP_Backend", 15
-    logger.info("set {} {}".format(pv, val))
-    # epics.caput(pv, val, timeout=EPICS_TOUT)
-    await asyncio.sleep(CMD_TOUT)
+    async def toStep(
+        self, dev, chs,
+    ):
+        pv, val = dev + ":Step-SP_Backend", 15
+        logger.info("set {} {}".format(pv, val))
+        # epics.caput(pv, val, timeout=EPICS_TOUT)
+        await asyncio.sleep(CMD_TOUT)
 
+    async def toStepToFix(self, _delay, dev, chs, voltage):
+        """ Run a function then another ..."""
+        delay = timedelta(seconds=_delay)
+        t_ini = datetime.now()
 
-async def toStepToFix(_delay, dev, chs, voltage):
-    """ Run a function then another ..."""
-    delay = timedelta(seconds=_delay)
-    t_ini = datetime.now()
+        tick = math.ceil(_delay / 100)
 
-    tick = math.ceil(_delay / 100)
-
-    logger.info(
-        'Running initial function "{}" at {}. Next method in {} seconds.'.format(
-            toStep.__name__, t_ini.strftime(TIMEFMT), _delay
+        logger.info(
+            'Running initial function "{}" at {} for device "{}". Next method in {} seconds.'.format(
+                self.toStep.__name__, t_ini.strftime(TIMEFMT), dev, _delay
+            )
         )
-    )
-    await toStep(dev, chs)
-
-    t_now = datetime.now()
-    t_elapsed = t_now - t_ini
-    while t_elapsed < delay:
-        logger.info("Time remaining {}.".format(delay - t_elapsed))
-        await asyncio.sleep(tick)
+        await self.toStep(dev, chs)
 
         t_now = datetime.now()
         t_elapsed = t_now - t_ini
+        while t_elapsed < delay:
+            remaining = delay - t_elapsed
+            logger.info("Time remaining {} for device {}.".format(remaining, dev))
+            self.timerStatus.emit({"dev": dev, "time": remaining})
+            await asyncio.sleep(tick)
 
-    logger.info(
-        'Running final function "{}" at {}.'.format(
-            toFixed.__name__, datetime.now().strftime(TIMEFMT)
-        )
-    )
+            t_now = datetime.now()
+            t_elapsed = t_now - t_ini
 
-    await toFixed(dev, chs, voltage)
-
-
-async def handle(
-    mode, step_to_fixed_delay, voltage,
-):
-
-    data = getAgilent()
-    devices = [device for device in getDevices(data)]
-    tasks = []
-    for device in devices:
-        dev = device["prefix"]
-        chs = [ch["prefix"] for ch_name, ch in device["channels"].items()]
-
-        if mode == FIXED:
-            tasks.append(asyncio.create_task(toFixed(dev, chs, voltage=voltage,)))
-
-        elif mode == STEP:
-            tasks.append(asyncio.create_task(toStep(dev, chs,)))
-
-        elif mode == STEP_TO_FIXED:
-            tasks.append(
-                asyncio.create_task(toStepToFix(step_to_fixed_delay, dev, chs, voltage))
+        logger.info(
+            'Running final function "{}" at {} for device "{}".'.format(
+                self.toFixed.__name__, datetime.now().strftime(TIMEFMT), dev
             )
+        )
 
-    await asyncio.gather(*tasks)
+        await self.toFixed(dev, chs, voltage)
+
+    async def handle(self, mode, step_to_fixed_delay, voltage, devices):
+
+        tasks = []
+        for device in devices:
+            dev = device["prefix"]
+            chs = [ch["prefix"] for ch_name, ch in device["channels"].items()]
+
+            if mode == FIXED:
+                tasks.append(
+                    asyncio.create_task(self.toFixed(dev, chs, voltage=voltage,))
+                )
+
+            elif mode == STEP:
+                tasks.append(asyncio.create_task(self.toStep(dev, chs,)))
+
+            elif mode == STEP_TO_FIXED:
+                tasks.append(
+                    asyncio.create_task(
+                        self.toStepToFix(step_to_fixed_delay, dev, chs, voltage)
+                    )
+                )
+
+        await asyncio.gather(*tasks)
+
+    def asyncStart(
+        self, mode, step_to_fixed_delay, voltage, devices,
+    ):
+        asyncio.run(
+            self.handle(
+                mode=mode,
+                step_to_fixed_delay=step_to_fixed_delay,
+                voltage=voltage,
+                devices=devices,
+            )
+        )
+
+
+class AgilentAsyncRunnable(QRunnable):
+    def __init__(
+        self, agilentAsync: AgilentAsync, mode, step_to_fixed_delay, voltage, devices,
+    ):
+        super(AgilentAsyncRunnable, self).__init__()
+        self.agilentAsync = agilentAsync
+        self.mode = mode
+        self.step_to_fixed_delay = step_to_fixed_delay
+        self.voltage = voltage
+        self.devices = devices
+
+    def run(self):
+        self.agilentAsync.started.emit()
+        try:
+            self.agilentAsync.asyncStart(
+                mode=self.mode,
+                step_to_fixed_delay=self.step_to_fixed_delay,
+                voltage=self.voltage,
+                devices=self.devices,
+            )
+        except Exception:
+            logger.exception("Unexpected Error")
+        finally:
+            self.agilentAsync.finished.emit()
 
 
 if __name__ == "__main__":
@@ -138,10 +185,12 @@ if __name__ == "__main__":
     if args.step_to_fixed_delay < 0:
         raise ValueError('Parameter "--step-to-fixed-delay" cannot be less then zero.')
 
-    asyncio.run(
-        handle(
-            mode=args.mode,
-            step_to_fixed_delay=args.step_to_fixed_delay,
-            voltage=args.voltage,
-        )
+    data = getAgilent()
+    devices = [device for device in getDevices(data)]
+    agilentAsyn = AgilentAsync()
+    agilentAsyn.asyncStart(
+        mode=args.mode,
+        step_to_fixed_delay=args.step_to_fixed_delay,
+        voltage=args.voltage,
+        devices=devices,
     )

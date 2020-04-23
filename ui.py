@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import logging
 from qtpy.QtWidgets import (
     QApplication,
     QFrame,
@@ -14,8 +15,17 @@ from qtpy.QtWidgets import (
 )
 from qtpy.QtGui import QRegExpValidator, QIntValidator, QDoubleValidator, QColor
 
-from qtpy.QtCore import Qt, QRegExp, QObject
+from qtpy.QtCore import Qt, QRegExp, QObject, QThread, QThreadPool
 from utils import getDevices, getAgilent
+from agilent import (
+    AgilentAsyncRunnable,
+    AgilentAsync,
+    STEP as MODE_STEP,
+    FIXED as MODE_FIXED,
+    STEP_TO_FIXED as MODE_STEP_TO_FIXED,
+)
+
+logger = logging.getLogger()
 
 
 class Parameters(QFrame):
@@ -30,6 +40,7 @@ class Parameters(QFrame):
         self.setpointVoltageLabel = QLabel("Fixed voltage [3000 to 7000] V")
         self.setpointVoltageSettingLabel = QLabel()
         self.setpointVoltageInp = QLineEdit()
+        self.setpointVoltageInp.setMaximumWidth(100)
         self.setpointVoltageInp.setValidator(QIntValidator(3000, 7000))
 
         self.contentLayout.addWidget(self.setpointVoltageLabel, 0, 0, 1, 1)
@@ -39,6 +50,7 @@ class Parameters(QFrame):
         self.stepToFixDelayLabel = QLabel("Step to Fixed delay in seconds")
         self.stepToFixDelaySettingLabel = QLabel()
         self.stepToFixDelayInp = QLineEdit()
+        self.stepToFixDelayInp.setMaximumWidth(100)
         self.stepToFixDelayInp.setValidator(QDoubleValidator(1, 1440, 2))
 
         self.contentLayout.addWidget(self.stepToFixDelayLabel, 1, 0, 1, 1)
@@ -57,14 +69,17 @@ class Parameters(QFrame):
             voltageString = self.setpointVoltageInp.text()
             tmp = int(voltageString)
             self.voltage = 3000 if tmp < 3000 else (7000 if tmp > 7000 else tmp)
-
+        except ValueError:
+            pass
+        finally:
+            self.setpointVoltageSettingLabel.setText("{}".format(self.voltage))
+        try:
             delayString = self.stepToFixDelayInp.text()
             tmp = float(delayString)
             self.delay = 1.0 if tmp < 1.0 else (1440.0 if tmp > 1440.0 else tmp)
         except ValueError:
             pass
         finally:
-            self.setpointVoltageSettingLabel.setText("{}".format(self.voltage))
             self.stepToFixDelaySettingLabel.setText("{}".format(self.delay))
 
 
@@ -80,6 +95,7 @@ class Devices(QFrame):
             "Device filter (Ion Pump not the channel!)"
         )
         self.devicePrefixFilterInp = QLineEdit()
+        self.devicePrefixFilterInp.setMaximumWidth(100)
 
         self.updateDeviceListButton = QPushButton("Update devices list")
         self.updateDeviceListButton.clicked.connect(self.updateDeviceList)
@@ -93,8 +109,15 @@ class Devices(QFrame):
         self.contentLayout.addWidget(self.reloadDevicesButton, 0, 3, 1, 1)
 
         self.deviceList = QListWidget()
-        self.contentLayout.addWidget(self.deviceList, 4, 0, 1, 4)
-        self.contentLayout.setRowStretch(4, 2)
+        self.contentLayout.addWidget(self.deviceList, 4, 0, 2, 2)
+
+        self.deviceStatus = QListWidget()
+        self.deviceStatusLabel = QLabel("Status")
+
+        self.contentLayout.addWidget(self.deviceStatusLabel, 4, 2, 1, 2)
+        self.contentLayout.addWidget(self.deviceStatus, 5, 2, 1, 2)
+
+        self.contentLayout.setRowStretch(5, 2)
 
         self.setLayout(self.contentLayout)
 
@@ -185,11 +208,45 @@ class MainWindow(QMainWindow):
         self.content.show()
         self.setCentralWidget(self.content)
 
+        # Thread !
+        self.commandRunning = False
+
+    def debug(self, param):
+        print(param)
+
+    def started(self):
+        self.commandRunning = True
+        self.toStepToFixedButton.setEnabled(False)
+
+    def finished(self):
+        self.commandRunning = False
+        self.toStepToFixedButton.setEnabled(True)
+
     def toStepToFixAction(self):
-        print(self.devices.getSelectedDevices())
+        if not self.commandRunning:
+
+            agilentAsync = AgilentAsync()
+            agilentAsync.timerStatus.connect(self.debug)
+            agilentAsync.started.connect(self.started)
+            agilentAsync.finished.connect(self.finished)
+
+            runnable = AgilentAsyncRunnable(
+                agilentAsync,
+                mode=MODE_STEP_TO_FIXED,
+                voltage=self.parameters.voltage,
+                step_to_fixed_delay=self.parameters.delay,
+                devices=self.devices.getSelectedDevices(),
+            )
+            QThreadPool.globalInstance().start(runnable)
 
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s.%(msecs)03d [%(levelname)s] %(message)s",
+        datefmt="%Y-%m-%d,%H:%M:%S",
+    )
+
     app = QApplication([])
 
     window = MainWindow()
