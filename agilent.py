@@ -2,8 +2,6 @@
 import argparse
 import epics
 import logging
-import re
-import threading
 import math
 import asyncio
 
@@ -74,10 +72,9 @@ async def toStepToFix(_delay, dev, chs, voltage):
     await toFixed(dev, chs, voltage)
 
 
-async def handle(args):
-    mode = args.mode
-    step_to_fixed_delay = args.step_to_fixed_delay
-    voltage = args.voltage
+async def handle(
+    mode, step_to_fixed_delay, voltage,
+):
 
     data = getAgilent()
     devices = [device for device in getDevices(data)]
@@ -141,4 +138,10 @@ if __name__ == "__main__":
     if args.step_to_fixed_delay < 0:
         raise ValueError('Parameter "--step-to-fixed-delay" cannot be less then zero.')
 
-    asyncio.run(handle(args))
+    asyncio.run(
+        handle(
+            mode=args.mode,
+            step_to_fixed_delay=args.step_to_fixed_delay,
+            voltage=args.voltage,
+        )
+    )
