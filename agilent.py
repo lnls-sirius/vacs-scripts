@@ -4,6 +4,7 @@ import epics
 import logging
 import math
 import asyncio
+import sys
 
 from datetime import timedelta, datetime
 from utils import getAgilent, getDevices, getChannels, TIMEFMT
@@ -114,14 +115,26 @@ class AgilentAsync(QObject):
     def asyncStart(
         self, mode, step_to_fixed_delay, voltage, devices,
     ):
-        asyncio.run(
-            self.handle(
-                mode=mode,
-                step_to_fixed_delay=step_to_fixed_delay,
-                voltage=voltage,
-                devices=devices,
+        if sys.version_info >= (3, 7):
+            asyncio.run(
+                self.handle(
+                    mode=mode,
+                    step_to_fixed_delay=step_to_fixed_delay,
+                    voltage=voltage,
+                    devices=devices,
+                )
             )
-        )
+        else:
+            loop = asyncio.get_event_loop()
+            loop.run_until_complete(
+                self.handle(
+                    mode=mode,
+                    step_to_fixed_delay=step_to_fixed_delay,
+                    voltage=voltage,
+                    devices=devices,
+                )
+            )
+            loop.close()
 
 
 class AgilentAsyncRunnable(QRunnable):
