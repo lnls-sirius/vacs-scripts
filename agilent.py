@@ -95,20 +95,38 @@ class AgilentAsync(QObject):
             dev = device["prefix"]
             chs = [ch["prefix"] for ch_name, ch in device["channels"].items()]
 
-            if mode == FIXED:
-                tasks.append(
-                    asyncio.create_task(self.toFixed(dev, chs, voltage=voltage,))
-                )
+            if sys.version_info >= (3, 7):
 
-            elif mode == STEP:
-                tasks.append(asyncio.create_task(self.toStep(dev, chs,)))
-
-            elif mode == STEP_TO_FIXED:
-                tasks.append(
-                    asyncio.create_task(
-                        self.toStepToFix(step_to_fixed_delay, dev, chs, voltage)
+                if mode == FIXED:
+                    tasks.append(
+                        asyncio.create_task(self.toFixed(dev, chs, voltage=voltage,))
                     )
-                )
+
+                elif mode == STEP:
+                    tasks.append(asyncio.create_task(self.toStep(dev, chs,)))
+
+                elif mode == STEP_TO_FIXED:
+                    tasks.append(
+                        asyncio.create_task(
+                            self.toStepToFix(step_to_fixed_delay, dev, chs, voltage)
+                        )
+                    )
+            else:
+                loop = asyncio.get_event_loop()
+                if mode == FIXED:
+                    tasks.append(
+                        loop.create_task(self.toFixed(dev, chs, voltage=voltage,))
+                    )
+
+                elif mode == STEP:
+                    tasks.append(loop.create_task(self.toStep(dev, chs,)))
+
+                elif mode == STEP_TO_FIXED:
+                    tasks.append(
+                        loop.create_task(
+                            self.toStepToFix(step_to_fixed_delay, dev, chs, voltage)
+                        )
+                    )
 
         await asyncio.gather(*tasks)
 
