@@ -11,6 +11,9 @@ from qtpy.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QSpacerItem,
+    QTableWidget,
+    QHeaderView,
+    QTableWidgetItem,
     QWidget,
 )
 from qtpy.QtGui import QRegExpValidator, QIntValidator, QDoubleValidator, QColor
@@ -72,7 +75,7 @@ class Parameters(QFrame):
         except ValueError:
             pass
         finally:
-            self.setpointVoltageSettingLabel.setText("{}".format(self.voltage))
+            self.setpointVoltageSettingLabel.setText("{} V".format(self.voltage))
         try:
             delayString = self.stepToFixDelayInp.text()
             tmp = float(delayString)
@@ -80,7 +83,7 @@ class Parameters(QFrame):
         except ValueError:
             pass
         finally:
-            self.stepToFixDelaySettingLabel.setText("{}".format(self.delay))
+            self.stepToFixDelaySettingLabel.setText("{} s".format(self.delay))
 
 
 class Devices(QFrame):
@@ -91,13 +94,16 @@ class Devices(QFrame):
 
         self.devices = []
 
+        # Current Action Status
+        self.status = {}
+
         self.devicePrefixFilterLabel = QLabel(
             "Device filter (Ion Pump not the channel!)"
         )
         self.devicePrefixFilterInp = QLineEdit()
         self.devicePrefixFilterInp.setMaximumWidth(100)
 
-        self.updateDeviceListButton = QPushButton("Update devices list")
+        self.updateDeviceListButton = QPushButton("Apply Filter")
         self.updateDeviceListButton.clicked.connect(self.updateDeviceList)
 
         self.reloadDevicesButton = QPushButton("Reload devices")
@@ -105,24 +111,36 @@ class Devices(QFrame):
 
         self.contentLayout.addWidget(self.devicePrefixFilterLabel, 0, 0, 1, 1)
         self.contentLayout.addWidget(self.devicePrefixFilterInp, 0, 1, 1, 1)
-        self.contentLayout.addWidget(self.updateDeviceListButton, 0, 2, 1, 1)
-        self.contentLayout.addWidget(self.reloadDevicesButton, 0, 3, 1, 1)
+        self.contentLayout.addWidget(self.updateDeviceListButton, 1, 0, 1, 1)
+        self.contentLayout.addWidget(self.reloadDevicesButton, 1, 1, 1, 1)
 
         self.deviceList = QListWidget()
-        self.contentLayout.addWidget(self.deviceList, 4, 0, 2, 2)
+        self.contentLayout.addWidget(self.deviceList, 2, 0, 2, 2)
 
-        self.deviceStatus = QListWidget()
+        self.deviceStatus = QTableWidget()
+        self.deviceStatus.setColumnCount(2)
+        self.deviceStatus.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.deviceStatus.setHorizontalHeaderLabels(["Device", "Status"])
         self.deviceStatusLabel = QLabel("Status")
 
-        self.contentLayout.addWidget(self.deviceStatusLabel, 4, 2, 1, 2)
-        self.contentLayout.addWidget(self.deviceStatus, 5, 2, 1, 2)
+        self.contentLayout.addWidget(self.deviceStatusLabel, 0, 2, 1, 2)
+        self.contentLayout.addWidget(self.deviceStatus, 1, 2, 4, 2)
 
-        self.contentLayout.setRowStretch(5, 2)
+        self.contentLayout.setRowStretch(2, 2)
 
         self.setLayout(self.contentLayout)
 
         self.deviceList.itemChanged.connect(self.highlightChecked)
         self.reloadData()
+
+    def updateStatus(self, param):
+        self.status[param["dev"]] = "{}".format(param["status"])
+        idx = 0
+        self.deviceStatus.setRowCount(len(self.status))
+        for k, v in self.status.items():
+            self.deviceStatus.setItem(idx, 0, QTableWidgetItem(k))
+            self.deviceStatus.setItem(idx, 1, QTableWidgetItem(v))
+            idx += 1
 
     def getSelectedDevices(self):
         checked_devices = []
@@ -186,10 +204,12 @@ class MainWindow(QMainWindow):
         # to Step Mode
         self.toStepButton = QPushButton("to Step")
         self.contentLayout.addWidget(self.toStepButton, 0, 0, 1, 1)
+        self.toStepButton.clicked.connect(self.toStepAction)
 
         # to Fixed
         self.toFixedButton = QPushButton("to Fixed")
         self.contentLayout.addWidget(self.toFixedButton, 1, 0, 1, 1)
+        self.toFixedButton.clicked.connect(self.toFixedAction)
 
         # to Step to Fixed
         self.toStepToFixedButton = QPushButton("to Step delay to Fixed")
@@ -212,17 +232,37 @@ class MainWindow(QMainWindow):
         self.commandRunning = False
 
     def debug(self, param):
-        print(param)
+        self.devices.updateStatus(param)
+
+    def enableComponents(self, enable):
+        self.devices.reloadDevicesButton.setEnabled(enable)
+        self.devices.updateDeviceListButton.setEnabled(enable)
+
+        self.toStepButton.setEnabled(enable)
+        self.toFixedButton.setEnabled(enable)
+        self.toStepToFixedButton.setEnabled(enable)
 
     def started(self):
         self.commandRunning = True
-        self.toStepToFixedButton.setEnabled(False)
+        self.enableComponents(False)
+
+        self.devices.deviceStatus.clearContents()
+        self.devices.deviceStatus.setRowCount(0)
 
     def finished(self):
         self.commandRunning = False
-        self.toStepToFixedButton.setEnabled(True)
+        self.enableComponents(True)
+
+    def toStepAction(self):
+        self.doAction(MODE_STEP)
+
+    def toFixedAction(self):
+        self.doAction(MODE_FIXED)
 
     def toStepToFixAction(self):
+        self.doAction(MODE_STEP_TO_FIXED)
+
+    def doAction(self, mode):
         if not self.commandRunning:
 
             agilentAsync = AgilentAsync()
@@ -232,7 +272,7 @@ class MainWindow(QMainWindow):
 
             runnable = AgilentAsyncRunnable(
                 agilentAsync,
-                mode=MODE_STEP_TO_FIXED,
+                mode=mode,
                 voltage=self.parameters.voltage,
                 step_to_fixed_delay=self.parameters.delay,
                 devices=self.devices.getSelectedDevices(),

@@ -29,6 +29,8 @@ class AgilentAsync(QObject):
     async def toFixed(
         self, dev, chs, voltage,
     ):
+        self.timerStatus.emit({"dev": dev, "status": "to Fixed"})
+
         pv, val = dev + ":Step-SP_Backend", 0
         logger.info("set {} {}".format(pv, val))
         # epics.caput(pv, val, timeout=EPICS_TOUT)
@@ -39,13 +41,17 @@ class AgilentAsync(QObject):
             logger.info("set {} {}".format(pv, val))
             # epics.caput(pv, val, timeout=EPICS_TOUT)
             await asyncio.sleep(CMD_TOUT)
+        self.timerStatus.emit({"dev": dev, "status": "Done"})
 
     async def toStep(
         self, dev, chs,
     ):
+        self.timerStatus.emit({"dev": dev, "status": "to Step"})
+
         pv, val = dev + ":Step-SP_Backend", 15
         logger.info("set {} {}".format(pv, val))
         # epics.caput(pv, val, timeout=EPICS_TOUT)
+        self.timerStatus.emit({"dev": dev, "status": "Done"})
         await asyncio.sleep(CMD_TOUT)
 
     async def toStepToFix(self, _delay, dev, chs, voltage):
@@ -67,7 +73,7 @@ class AgilentAsync(QObject):
         while t_elapsed < delay:
             remaining = delay - t_elapsed
             logger.info("Time remaining {} for device {}.".format(remaining, dev))
-            self.timerStatus.emit({"dev": dev, "time": remaining})
+            self.timerStatus.emit({"dev": dev, "status": remaining})
             await asyncio.sleep(tick)
 
             t_now = datetime.now()
