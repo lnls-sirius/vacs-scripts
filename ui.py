@@ -45,6 +45,7 @@ class Parameters(QFrame):
         self.setpointVoltageInp = QLineEdit()
         self.setpointVoltageInp.setMaximumWidth(100)
         self.setpointVoltageInp.setValidator(QIntValidator(3000, 7000))
+        self.setpointVoltageInp.setToolTip("New fixed voltage setpoint.")
 
         self.contentLayout.addWidget(self.setpointVoltageLabel, 0, 0, 1, 1)
         self.contentLayout.addWidget(self.setpointVoltageInp, 0, 1, 1, 1)
@@ -55,6 +56,7 @@ class Parameters(QFrame):
         self.stepToFixDelayInp = QLineEdit()
         self.stepToFixDelayInp.setMaximumWidth(100)
         self.stepToFixDelayInp.setValidator(QDoubleValidator(1, 1440, 2))
+        self.stepToFixDelayInp.setToolTip("Delay between toStep and toFixed calls.")
 
         self.contentLayout.addWidget(self.stepToFixDelayLabel, 1, 0, 1, 1)
         self.contentLayout.addWidget(self.stepToFixDelayInp, 1, 1, 1, 1)
@@ -62,6 +64,7 @@ class Parameters(QFrame):
 
         self.setButton = QPushButton("Confirm")
         self.setButton.clicked.connect(self.confirm)
+        self.setButton.setToolTip("Apply settings")
         self.contentLayout.addWidget(self.setButton, 3, 1, 1, 1)
 
         self.setLayout(self.contentLayout)
@@ -105,14 +108,11 @@ class Devices(QFrame):
 
         self.updateDeviceListButton = QPushButton("Apply Filter")
         self.updateDeviceListButton.clicked.connect(self.updateDeviceList)
+        self.updateDeviceListButton.setToolTip("Filter the device prefix list.")
 
-        self.reloadDevicesButton = QPushButton("Reload devices")
-        self.reloadDevicesButton.clicked.connect(self.reloadData)
-
-        self.contentLayout.addWidget(self.devicePrefixFilterLabel, 0, 0, 1, 1)
-        self.contentLayout.addWidget(self.devicePrefixFilterInp, 0, 1, 1, 1)
-        self.contentLayout.addWidget(self.updateDeviceListButton, 1, 0, 1, 1)
-        self.contentLayout.addWidget(self.reloadDevicesButton, 1, 1, 1, 1)
+        self.contentLayout.addWidget(self.devicePrefixFilterLabel, 0, 0, 1, 2)
+        self.contentLayout.addWidget(self.devicePrefixFilterInp, 1, 0, 1, 1)
+        self.contentLayout.addWidget(self.updateDeviceListButton, 1, 1, 1, 1)
 
         self.deviceList = QListWidget()
         self.contentLayout.addWidget(self.deviceList, 2, 0, 2, 2)
@@ -203,18 +203,25 @@ class MainWindow(QMainWindow):
 
         # to Step Mode
         self.toStepButton = QPushButton("to Step")
-        self.contentLayout.addWidget(self.toStepButton, 0, 0, 1, 1)
+        self.toStepButton.setToolTip("Set the voltage behaviour to Step mode.")
         self.toStepButton.clicked.connect(self.toStepAction)
+        self.contentLayout.addWidget(self.toStepButton, 0, 0, 1, 1)
 
         # to Fixed
         self.toFixedButton = QPushButton("to Fixed")
-        self.contentLayout.addWidget(self.toFixedButton, 1, 0, 1, 1)
+        self.toFixedButton.setToolTip(
+            "Set the voltage behaviour to Fixed mode and apply a new voltage setpoint."
+        )
         self.toFixedButton.clicked.connect(self.toFixedAction)
+        self.contentLayout.addWidget(self.toFixedButton, 1, 0, 1, 1)
 
         # to Step to Fixed
         self.toStepToFixedButton = QPushButton("to Step delay to Fixed")
-        self.contentLayout.addWidget(self.toStepToFixedButton, 2, 0, 1, 1)
         self.toStepToFixedButton.clicked.connect(self.toStepToFixAction)
+        self.toStepToFixedButton.setToolTip(
+            "Set the behaviour to Step, wait n seconds, set the voltage to Fixed applying a new voltage setpoint."
+        )
+        self.contentLayout.addWidget(self.toStepToFixedButton, 2, 0, 1, 1)
 
         # Parameters
         self.parameters = Parameters()
@@ -235,7 +242,6 @@ class MainWindow(QMainWindow):
         self.devices.updateStatus(param)
 
     def enableComponents(self, enable):
-        self.devices.reloadDevicesButton.setEnabled(enable)
         self.devices.updateDeviceListButton.setEnabled(enable)
 
         self.toStepButton.setEnabled(enable)
