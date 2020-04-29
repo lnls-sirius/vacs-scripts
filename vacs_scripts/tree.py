@@ -1,13 +1,21 @@
 #!/usr/bin/env python3
 import sys
-from utils import getAgilent, getDevices
-from collections import deque
-from qtpy import QtCore, QtGui, QtWidgets
+from typing import List
+
+from qtpy import QtGui, QtWidgets
+
+from conscommon.data import getAgilent
+from data_model import (
+    getDevicesFromList,
+    getBeaglesFromList,
+    getDevicesFromBeagles,
+    Device,
+)
 
 
-class Window(QtWidgets.QWidget):
-    def __init__(self, data):
-        super(Window, self).__init__()
+class DeviceTreeView(QtWidgets.QWidget):
+    def __init__(self):
+        super(DeviceTreeView, self).__init__()
 
         self.tree = QtWidgets.QTreeView(self)
         layout = QtWidgets.QVBoxLayout(self)
@@ -20,16 +28,16 @@ class Window(QtWidgets.QWidget):
         self.tree.setModel(self.model)
         self.model.itemChanged.connect(self.itemChanged)
 
-        self.importData(data)
-        self.tree.expandAll()
-
         self.button = QtWidgets.QPushButton("Get")
         self.button.clicked.connect(self.getData)
         layout.addWidget(self.button)
 
-    def importData(self, data, root=None):
+        self.cont = True
+
+    def importData(self, data: List[Device], root=None):
+
         self.model.clear()
-        self.model.setHorizontalHeaderLabels(["", ""])
+        self.model.setHorizontalHeaderLabels(["Device", "Channel"])
         self.model.setRowCount(0)
 
         count = 0
@@ -37,20 +45,20 @@ class Window(QtWidgets.QWidget):
             root = self.model.invisibleRootItem()
 
         for d in data:
-            item_dev = QtGui.QStandardItem(d["prefix"])
+            item_dev = QtGui.QStandardItem(d.prefix)
             item_dev.setAutoTristate(False)
             item_dev.setCheckable(True)
             item_dev.setEditable(False)
             item_dev.setUserTristate(False)
 
-            for ch_n, ch in d["channels"].items():
-                i_ = QtGui.QStandardItem(ch_n)
+            for ch in d.channels:
+                i_ = QtGui.QStandardItem(ch.name)
                 i_.setAutoTristate(False)
                 i_.setCheckable(True)
                 i_.setEditable(False)
                 i_.setUserTristate(False)
 
-                i_p = QtGui.QStandardItem(ch["prefix"])
+                i_p = QtGui.QStandardItem(ch.prefix)
                 i_p.setEditable(False)
 
                 item_dev.appendRow([i_, i_p])
@@ -59,7 +67,7 @@ class Window(QtWidgets.QWidget):
             count += 1
         self.model.setRowCount(count)
 
-    def checkParentState(self, item):
+    def checkParentState(self, item) -> int:
         checked = 0
         for row in range(item.rowCount()):
             if item.child(row, 0).checkState() != 0:
@@ -72,21 +80,10 @@ class Window(QtWidgets.QWidget):
         else:
             return 1
 
-    def getDevices(self):
-        checked = self.model.match(
-            self.model.index(0, 0),
-            QtCore.Qt.CheckStateRole,
-            1,
-            -1,
-            QtCore.Qt.MatchExactly | QtCore.Qt.MatchRecursive,
-        )
-        for index in checked:
-            item = self.model.itemFromIndex(index)
-            print(item.text())
-
-    def getData(self):
+    def getData(self) -> List[Device]:
         root = self.model.invisibleRootItem()
-        selected = {}
+        selected = []
+
         for i in range(root.rowCount()):
             row = root.child(i, 0)
 
@@ -97,45 +94,57 @@ class Window(QtWidgets.QWidget):
                         channels[row.child(j, 0).text()] = {
                             "prefix": row.child(j, 1).text()
                         }
-                selected[row.text()] = {"channels": channels}
-        print(selected)
-        return selected
+
+                selected.append({"prefix": row.text(), "channels": channels})
+        return getDevicesFromList(selected)
+
+    def paintItem(self, item, state):
+        if state == 0:
+            item.setBackground(QtGui.QColor("#fffff2"))
+        elif state == 1:
+            item.setBackground(QtGui.QColor("#ffffb2"))
+        elif state == 2:
+            item.setBackground(QtGui.QColor("#c0ffb2"))
+
+    def iterChild(self, item):
+        for row in range(item.rowCount()):
+            yield item.child(row, 0), item.child(row, 1)
 
     def itemChanged(self, item):
 
+        if not self.cont:
+            return
+
         if type(item) == QtGui.QStandardItem:
+            self.cont = False
             parent = item.parent()
 
             if item.rowCount() > 0 and parent is None:
-                pass  # if item.checkState() == 0 or item.checkState() == 2:
-                # for row in range(item.rowCount()):
-                #    if item.child(row, 0).checkState() != item.checkState():
-                #        item.child(row, 0).setCheckState(item.checkState())
-                # if item.checkState() == 0 or item.checkState() == 2:
-                #    for row in range(item.rowCount()):
-                #        if item.child(row, 0).checkState() != item.checkState():
-                #            item.child(row, 0).setCheckState(item.checkState())
+                if item.checkState() == 0 or item.checkState() == 2:
+                    for row in range(item.rowCount()):
+                        if item.child(row, 0).checkState() != item.checkState():
+                            item.child(row, 0).setCheckState(item.checkState())
             else:
-                # A device ...
                 if parent and parent.isCheckable():
                     state = self.checkParentState(parent)
                     parent.setCheckState(state)
 
-            if item.isCheckable():
-                if item.checkState() == 0:
-                    item.setBackground(QtGui.QColor("#fffff2"))
-                elif item.checkState() == 1:
-                    item.setBackground(QtGui.QColor("#ffffb2"))
-                elif item.checkState() == 2:
-                    item.setBackground(QtGui.QColor("#c0ffb2"))
+            _p = item if (parent is None and item.rowCount() > 0) else parent
+            self.paintItem(_p, _p.checkState())
+            for i1, i2 in self.iterChild(
+                item if (parent is None and item.rowCount() > 0) else parent
+            ):
+                self.paintItem(i1, i1.checkState())
+                self.paintItem(i2, i1.checkState())
+            self.cont = True
 
 
 if __name__ == "__main__":
 
-    data = getDevices(getAgilent())
+    data = getDevicesFromBeagles(getBeaglesFromList(getAgilent()))
 
     app = QtWidgets.QApplication(sys.argv)
-    window = Window(data)
+    window = DeviceTreeView(data)
     window.setGeometry(600, 50, 400, 250)
     window.show()
     sys.exit(app.exec_())
